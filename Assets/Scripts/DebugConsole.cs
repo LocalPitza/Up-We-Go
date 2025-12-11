@@ -10,19 +10,27 @@ public class DebugConsole : MonoBehaviour
     private Vector2 scrollPos;
     private const int maxLogs = 100;
     
+    // Player controller reference
+    private PlayerController playerController;
+    
     // Noclip settings
     private float flySpeed = 10f;
     private float fastFlySpeed = 25f;
-    private CharacterController playerController;
+    private CharacterController PlayerController;
     private Rigidbody playerRigidbody;
     private Collider playerCollider;
     private bool wasKinematic;
     private Vector3 noclipVelocity;
     
     // GUI settings
-    private Rect consoleRect = new Rect(10, 10, Screen.width - 20, 300);
+    private Rect consoleRect = new Rect(10, 10, Screen.width - 20, 400);
     private GUIStyle consoleStyle;
     private GUIStyle logStyle;
+    private GUIStyle inputStyle;
+    
+    // Command input
+    private string commandInput = "";
+    private bool focusInput = false;
 
     void Awake()
     {
@@ -35,17 +43,19 @@ public class DebugConsole : MonoBehaviour
     void FindPlayerComponents()
     {
         // Look for CharacterController on this object or children
-        playerController = GetComponentInChildren<CharacterController>();
+        playerController = GetComponentInChildren<PlayerController>();
+        CharacterController charController = GetComponentInChildren<CharacterController>();
         playerRigidbody = GetComponentInChildren<Rigidbody>();
         playerCollider = GetComponentInChildren<Collider>();
         
         // If not found, try to find the player by tag
-        if (playerController == null)
+        if (charController == null)
         {
             GameObject player = GameObject.FindGameObjectWithTag("Player");
             if (player != null)
             {
-                playerController = player.GetComponent<CharacterController>();
+                playerController = player.GetComponent<PlayerController>();
+                charController = player.GetComponent<CharacterController>();
                 playerRigidbody = player.GetComponent<Rigidbody>();
                 playerCollider = player.GetComponent<Collider>();
             }
@@ -58,12 +68,47 @@ public class DebugConsole : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.BackQuote))
         {
             showConsole = !showConsole;
+            
+            if (showConsole)
+            {
+                // Show cursor and unlock
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                
+                // Disable player controller
+                if (playerController != null)
+                {
+                    playerController.enabled = false;
+                }
+                
+                focusInput = true;
+            }
+            else
+            {
+                // Hide cursor and lock
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+                
+                // Re-enable player controller if not in noclip
+                if (playerController != null && !noclipEnabled)
+                {
+                    playerController.enabled = true;
+                }
+            }
         }
 
         // Toggle noclip with N key when console is open
         if (showConsole && Input.GetKeyDown(KeyCode.N))
         {
             ToggleNoclip();
+        }
+        
+        // Execute command with Enter
+        if (showConsole && Input.GetKeyDown(KeyCode.Return))
+        {
+            ExecuteCommand(commandInput);
+            commandInput = "";
+            focusInput = true;
         }
 
         // Handle noclip movement
@@ -100,15 +145,101 @@ public class DebugConsole : MonoBehaviour
         }
     }
 
+    void ExecuteCommand(string command)
+    {
+        if (string.IsNullOrEmpty(command)) return;
+        
+        logs.Add($"<color=cyan>> {command}</color>");
+        
+        string[] parts = command.ToLower().Split(' ');
+        
+        switch (parts[0])
+        {
+            case "tp":
+            case "-tp":
+                if (parts.Length > 1)
+                {
+                    HandleTeleportCommand(parts[1]);
+                }
+                else
+                {
+                    logs.Add("<color=yellow>Usage: tp [main|debug]</color>");
+                }
+                break;
+                
+            case "help":
+                logs.Add("<color=green>Available Commands:</color>");
+                logs.Add("  tp main - Teleport to main spawn");
+                logs.Add("  tp debug - Teleport to debug spawn");
+                logs.Add("  noclip - Toggle noclip mode");
+                logs.Add("  clear - Clear console");
+                logs.Add("  help - Show this help");
+                break;
+                
+            case "noclip":
+                ToggleNoclip();
+                break;
+                
+            case "clear":
+                logs.Clear();
+                break;
+                
+            default:
+                logs.Add($"<color=red>Unknown command: {parts[0]}</color>");
+                logs.Add("Type 'help' for available commands");
+                break;
+        }
+    }
+
+    void HandleTeleportCommand(string destination)
+    {
+        if (SpawnManager.Instance == null)
+        {
+            logs.Add("<color=red>SpawnManager not found in scene!</color>");
+            return;
+        }
+        
+        switch (destination)
+        {
+            case "main":
+            case "spawn":
+                SpawnManager.Instance.SpawnAtMain();
+                logs.Add("<color=green>Teleported to main spawn</color>");
+                break;
+                
+            case "debug":
+                SpawnManager.Instance.SpawnAtDebug();
+                logs.Add("<color=green>Teleported to debug spawn</color>");
+                break;
+                
+            default:
+                logs.Add($"<color=red>Unknown spawn point: {destination}</color>");
+                logs.Add("Available: main, debug");
+                break;
+        }
+    }
+
     void ToggleNoclip()
     {
         noclipEnabled = !noclipEnabled;
         
         if (noclipEnabled)
         {
-            // Disable physics
+            // Disable player controller
             if (playerController != null)
+            {
                 playerController.enabled = false;
+            }
+            
+            // Disable physics
+            CharacterController charController = GetComponent<CharacterController>();
+            if (charController == null && playerController != null)
+            {
+                charController = playerController.GetComponent<CharacterController>();
+            }
+            
+            if (charController != null)
+                charController.enabled = false;
                 
             if (playerRigidbody != null)
             {
@@ -123,9 +254,21 @@ public class DebugConsole : MonoBehaviour
         }
         else
         {
-            // Re-enable physics
-            if (playerController != null)
+            // Re-enable player controller only if console is closed
+            if (playerController != null && !showConsole)
+            {
                 playerController.enabled = true;
+            }
+            
+            // Re-enable physics
+            CharacterController charController = GetComponent<CharacterController>();
+            if (charController == null && playerController != null)
+            {
+                charController = playerController.GetComponent<CharacterController>();
+            }
+            
+            if (charController != null)
+                charController.enabled = true;
                 
             if (playerRigidbody != null)
                 playerRigidbody.isKinematic = wasKinematic;
@@ -172,6 +315,10 @@ public class DebugConsole : MonoBehaviour
             logStyle.richText = true;
             logStyle.wordWrap = true;
             logStyle.fontSize = 12;
+            
+            inputStyle = new GUIStyle(GUI.skin.textField);
+            inputStyle.fontSize = 14;
+            inputStyle.padding = new RectOffset(5, 5, 5, 5);
         }
 
         // Draw console background
@@ -181,7 +328,7 @@ public class DebugConsole : MonoBehaviour
         
         // Title and controls
         GUILayout.BeginHorizontal();
-        GUILayout.Label("<b>Debug Console</b> - Press ` to close | N to toggle Noclip", logStyle);
+        GUILayout.Label("<b>Debug Console</b> - Press ` to close | Type 'help' for commands", logStyle);
         if (GUILayout.Button("Clear", GUILayout.Width(60)))
         {
             logs.Clear();
@@ -199,7 +346,7 @@ public class DebugConsole : MonoBehaviour
         GUILayout.Space(5);
 
         // Scrollable log area
-        scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.Height(consoleRect.height - 80));
+        scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.Height(consoleRect.height - 120));
         
         foreach (string log in logs)
         {
@@ -207,6 +354,22 @@ public class DebugConsole : MonoBehaviour
         }
         
         GUILayout.EndScrollView();
+        
+        GUILayout.Space(5);
+        
+        // Command input
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(">", logStyle, GUILayout.Width(15));
+        GUI.SetNextControlName("CommandInput");
+        commandInput = GUILayout.TextField(commandInput, inputStyle);
+        GUILayout.EndHorizontal();
+        
+        // Auto-focus input
+        if (focusInput)
+        {
+            GUI.FocusControl("CommandInput");
+            focusInput = false;
+        }
         
         GUILayout.EndArea();
     }

@@ -16,11 +16,14 @@ public class DebugConsole : MonoBehaviour
     // Noclip settings
     private float flySpeed = 10f;
     private float fastFlySpeed = 25f;
-    private CharacterController PlayerController;
+    private CharacterController characterController;
     private Rigidbody playerRigidbody;
     private Collider playerCollider;
     private bool wasKinematic;
-    private Vector3 noclipVelocity;
+    private float mouseSensitivity = 2f;
+    private float verticalRotation = 0f;
+    private float maxLookAngle = 80f;
+    private Transform cameraTransform;
     
     // GUI settings
     private Rect consoleRect = new Rect(10, 10, Screen.width - 20, 400);
@@ -39,26 +42,41 @@ public class DebugConsole : MonoBehaviour
         // Try to find player components
         FindPlayerComponents();
     }
+    
+    void OnDestroy()
+    {
+        Application.logMessageReceived -= HandleLog;
+    }
 
     void FindPlayerComponents()
     {
-        // Look for CharacterController on this object or children
+        // Look for PlayerController on this object or children
         playerController = GetComponentInChildren<PlayerController>();
-        CharacterController charController = GetComponentInChildren<CharacterController>();
+        characterController = GetComponentInChildren<CharacterController>();
         playerRigidbody = GetComponentInChildren<Rigidbody>();
         playerCollider = GetComponentInChildren<Collider>();
         
+        // Get camera reference
+        cameraTransform = Camera.main.transform;
+        
         // If not found, try to find the player by tag
-        if (charController == null)
+        if (playerController == null)
         {
             GameObject player = GameObject.FindGameObjectWithTag("Player");
             if (player != null)
             {
                 playerController = player.GetComponent<PlayerController>();
-                charController = player.GetComponent<CharacterController>();
+                characterController = player.GetComponent<CharacterController>();
                 playerRigidbody = player.GetComponent<Rigidbody>();
                 playerCollider = player.GetComponent<Collider>();
             }
+        }
+        
+        // Store initial mouse sensitivity if player controller exists
+        if (playerController != null)
+        {
+            // Try to match the player's mouse sensitivity
+            mouseSensitivity = 2f; // Default value
         }
     }
 
@@ -95,20 +113,6 @@ public class DebugConsole : MonoBehaviour
                     playerController.enabled = true;
                 }
             }
-        }
-
-        // Toggle noclip with N key when console is open
-        if (showConsole && Input.GetKeyDown(KeyCode.N))
-        {
-            ToggleNoclip();
-        }
-        
-        // Execute command with Enter
-        if (showConsole && Input.GetKeyDown(KeyCode.Return))
-        {
-            ExecuteCommand(commandInput);
-            commandInput = "";
-            focusInput = true;
         }
 
         // Handle noclip movement
@@ -166,11 +170,25 @@ public class DebugConsole : MonoBehaviour
                     logs.Add("<color=yellow>Usage: tp [main|debug]</color>");
                 }
                 break;
+            
+            case "spawn":
+                if (parts.Length > 1)
+                {
+                    HandleSpawnCommand(parts[1]);
+                }
+                else
+                {
+                    logs.Add("<color=yellow>Usage: spawn [prefabname]</color>");
+                    logs.Add("Type 'spawn list' to see available prefabs");
+                }
+                break;
                 
             case "help":
                 logs.Add("<color=green>Available Commands:</color>");
                 logs.Add("  tp main - Teleport to main spawn");
                 logs.Add("  tp debug - Teleport to debug spawn");
+                logs.Add("  spawn [name] - Spawn a prefab in front of you");
+                logs.Add("  spawn list - Show available prefabs");
                 logs.Add("  noclip - Toggle noclip mode");
                 logs.Add("  clear - Clear console");
                 logs.Add("  help - Show this help");
@@ -219,12 +237,66 @@ public class DebugConsole : MonoBehaviour
         }
     }
 
+    void HandleSpawnCommand(string prefabName)
+    {
+        if (PrefabSpawner.Instance == null)
+        {
+            logs.Add("<color=red>PrefabSpawner not found in scene!</color>");
+            logs.Add("Add PrefabSpawner component to scene to use spawn command");
+            return;
+        }
+        
+        // Check for special commands
+        if (prefabName == "list")
+        {
+            List<string> availablePrefabs = PrefabSpawner.Instance.GetAvailablePrefabs();
+            
+            if (availablePrefabs.Count == 0)
+            {
+                logs.Add("<color=yellow>No prefabs registered in PrefabSpawner</color>");
+            }
+            else
+            {
+                logs.Add("<color=green>Available Prefabs:</color>");
+                foreach (string name in availablePrefabs)
+                {
+                    logs.Add($"  - {name}");
+                }
+            }
+            return;
+        }
+        
+        // Try to spawn the prefab
+        GameObject spawned = PrefabSpawner.Instance.SpawnPrefab(prefabName);
+        
+        if (spawned != null)
+        {
+            logs.Add($"<color=green>Spawned '{prefabName}' in front of you</color>");
+        }
+        else
+        {
+            logs.Add($"<color=red>Failed to spawn '{prefabName}'</color>");
+            logs.Add("Type 'spawn list' to see available prefabs");
+        }
+    }
+
     void ToggleNoclip()
     {
         noclipEnabled = !noclipEnabled;
         
         if (noclipEnabled)
         {
+            // Store current camera rotation
+            if (cameraTransform != null)
+            {
+                verticalRotation = cameraTransform.localEulerAngles.x;
+                if (verticalRotation > 180f) verticalRotation -= 360f;
+            }
+            
+            // Lock cursor for noclip mouse look
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+            
             // Disable player controller
             if (playerController != null)
             {
@@ -232,14 +304,8 @@ public class DebugConsole : MonoBehaviour
             }
             
             // Disable physics
-            CharacterController charController = GetComponent<CharacterController>();
-            if (charController == null && playerController != null)
-            {
-                charController = playerController.GetComponent<CharacterController>();
-            }
-            
-            if (charController != null)
-                charController.enabled = false;
+            if (characterController != null)
+                characterController.enabled = false;
                 
             if (playerRigidbody != null)
             {
@@ -250,7 +316,7 @@ public class DebugConsole : MonoBehaviour
             if (playerCollider != null)
                 playerCollider.enabled = false;
                 
-            logs.Add("<color=green>[NOCLIP] Enabled - WASD to move, Space/Ctrl for up/down, Shift for speed boost</color>");
+            logs.Add("<color=green>[NOCLIP] Enabled - WASD to move, Mouse to look, Space/Ctrl for up/down, Shift for speed boost</color>");
         }
         else
         {
@@ -261,20 +327,21 @@ public class DebugConsole : MonoBehaviour
             }
             
             // Re-enable physics
-            CharacterController charController = GetComponent<CharacterController>();
-            if (charController == null && playerController != null)
-            {
-                charController = playerController.GetComponent<CharacterController>();
-            }
-            
-            if (charController != null)
-                charController.enabled = true;
+            if (characterController != null)
+                characterController.enabled = true;
                 
             if (playerRigidbody != null)
                 playerRigidbody.isKinematic = wasKinematic;
                 
             if (playerCollider != null)
                 playerCollider.enabled = true;
+            
+            // If console is open, show cursor again
+            if (showConsole)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
                 
             logs.Add("<color=yellow>[NOCLIP] Disabled</color>");
         }
@@ -282,27 +349,67 @@ public class DebugConsole : MonoBehaviour
 
     void HandleNoclipMovement()
     {
+        // Mouse look
+        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
+        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+        
+        // Get the player transform
+        Transform playerTransform = playerController != null ? playerController.transform : transform;
+        
+        // Rotate player horizontally
+        playerTransform.Rotate(Vector3.up * mouseX);
+        
+        // Rotate camera vertically
+        verticalRotation -= mouseY;
+        verticalRotation = Mathf.Clamp(verticalRotation, -maxLookAngle, maxLookAngle);
+        if (cameraTransform != null)
+        {
+            cameraTransform.localRotation = Quaternion.Euler(verticalRotation, 0f, 0f);
+        }
+        
+        // Movement
         float speed = Input.GetKey(KeyCode.LeftShift) ? fastFlySpeed : flySpeed;
         
         Vector3 move = Vector3.zero;
         
+        // Use camera forward direction for movement
+        Transform movementReference = cameraTransform != null ? cameraTransform : playerTransform;
+        
         // Forward/backward
-        if (Input.GetKey(KeyCode.W)) move += Camera.main.transform.forward;
-        if (Input.GetKey(KeyCode.S)) move -= Camera.main.transform.forward;
+        if (Input.GetKey(KeyCode.W)) move += movementReference.forward;
+        if (Input.GetKey(KeyCode.S)) move -= movementReference.forward;
         
         // Left/right
-        if (Input.GetKey(KeyCode.A)) move -= Camera.main.transform.right;
-        if (Input.GetKey(KeyCode.D)) move += Camera.main.transform.right;
+        if (Input.GetKey(KeyCode.A)) move -= movementReference.right;
+        if (Input.GetKey(KeyCode.D)) move += movementReference.right;
         
-        // Up/down
+        // Up/down (world space)
         if (Input.GetKey(KeyCode.Space)) move += Vector3.up;
         if (Input.GetKey(KeyCode.LeftControl)) move -= Vector3.up;
         
-        transform.position += move.normalized * speed * Time.deltaTime;
+        // Move the player object
+        playerTransform.position += move.normalized * speed * Time.deltaTime;
     }
 
     void OnGUI()
     {
+        // Handle Enter key for command execution BEFORE TextField processes it
+        if (showConsole && Event.current.type == EventType.KeyDown)
+        {
+            if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
+            {
+                ExecuteCommand(commandInput);
+                commandInput = "";
+                focusInput = true;
+                Event.current.Use(); // Consume the event
+            }
+            else if (Event.current.keyCode == KeyCode.N && Event.current.control)
+            {
+                ToggleNoclip();
+                Event.current.Use();
+            }
+        }
+        
         if (!showConsole) return;
 
         // Initialize styles
@@ -384,10 +491,5 @@ public class DebugConsole : MonoBehaviour
         result.SetPixels(pix);
         result.Apply();
         return result;
-    }
-
-    void OnDestroy()
-    {
-        Application.logMessageReceived -= HandleLog;
     }
 }

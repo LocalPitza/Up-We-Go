@@ -115,8 +115,15 @@ public class PlayerController : MonoBehaviour
         HandleHeadBob();
         HandleInteraction();
         
-        // Debug: Show inventory on I key
-        if (Input.GetKeyDown(KeyCode.I))
+        // Debug: Show inventory on I key (now using KeybindManager)
+        if (KeybindManager.Instance != null)
+        {
+            if (KeybindManager.Instance.GetKeyDown("Inventory"))
+            {
+                ShowInventory();
+            }
+        }
+        else if (Input.GetKeyDown(KeyCode.I)) // Fallback if KeybindManager not present
         {
             ShowInventory();
         }
@@ -138,7 +145,17 @@ public class PlayerController : MonoBehaviour
 
     void HandleCrouch()
     {
-        bool crouchInput = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.C);
+        bool crouchInput = false;
+        
+        if (KeybindManager.Instance != null)
+        {
+            crouchInput = KeybindManager.Instance.GetKey("Crouch");
+        }
+        else
+        {
+            // Fallback
+            crouchInput = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.C);
+        }
         
         if (crouchInput)
         {
@@ -278,7 +295,20 @@ public class PlayerController : MonoBehaviour
 
     void HandleInteraction()
     {
-        if (Input.GetKeyDown(KeyCode.E))
+        // Check for interaction key press using KeybindManager
+        bool interactPressed = false;
+        
+        if (KeybindManager.Instance != null)
+        {
+            interactPressed = KeybindManager.Instance.GetKeyDown("Interact");
+        }
+        else
+        {
+            // Fallback to direct input if KeybindManager doesn't exist
+            interactPressed = Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.F);
+        }
+        
+        if (interactPressed)
         {
             Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
             RaycastHit hit;

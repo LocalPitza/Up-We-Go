@@ -11,11 +11,11 @@ public class ObjectInteraction : MonoBehaviour
     [SerializeField] private LayerMask pickupLayer;
     
     [Header("Physics Settings")]
-    [SerializeField] private float moveForce = 1000f; // Force to pull object to hold point
-    [SerializeField] private float maxVelocity = 15f; // Max speed object can move
+    [SerializeField] private float moveForce = 1000f;
+    [SerializeField] private float maxVelocity = 15f;
     [SerializeField] private float rotationSpeed = 5f;
     [SerializeField] private float dampingFactor = 5f;
-    [SerializeField] private float verticalMultiplier = 1.5f; // Extra boost for vertical movement
+    [SerializeField] private float verticalMultiplier = 1.5f;
     
     [Header("Audio")]
     [SerializeField] private AudioClip pickupSound;
@@ -26,7 +26,7 @@ public class ObjectInteraction : MonoBehaviour
     [Header("References")]
     [SerializeField] private Transform holdPoint;
     [SerializeField] private Camera playerCamera;
-    [SerializeField] private LayerMask playerLayer; // Set to player's layer
+    [SerializeField] private LayerMask playerLayer;
     
     private GameObject heldObject;
     private Rigidbody heldRigidbody;
@@ -35,7 +35,6 @@ public class ObjectInteraction : MonoBehaviour
     private bool isHoldingObject;
     private int originalLayer;
     
-    // Public method to check what object is being held
     public GameObject GetHeldObject()
     {
         return heldObject;
@@ -51,15 +50,13 @@ public class ObjectInteraction : MonoBehaviour
         if (playerCamera == null)
             playerCamera = Camera.main;
         
-        // Setup audio source
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();
             audioSource.playOnAwake = false;
-            audioSource.spatialBlend = 0f; // 2D sound
+            audioSource.spatialBlend = 0f;
         }
             
-        // Create hold point if not assigned
         if (holdPoint == null)
         {
             GameObject hp = new GameObject("HoldPoint");
@@ -71,8 +68,30 @@ public class ObjectInteraction : MonoBehaviour
     
     void Update()
     {
-        // Pick up or drop object
-        if (Input.GetMouseButtonDown(0)) // Left click
+        // Pick up or drop object using KeybindManager
+        bool pickupPressed = false;
+        bool throwPressed = false;
+        bool rotateHeld = false;
+        float scrollDelta = 0f;
+        
+        if (KeybindManager.Instance != null)
+        {
+            pickupPressed = KeybindManager.Instance.GetKeyDown("Pickup");
+            throwPressed = KeybindManager.Instance.GetKeyDown("Throw");
+            rotateHeld = KeybindManager.Instance.GetKey("RotateObject");
+            scrollDelta = KeybindManager.Instance.GetMouseScrollDelta();
+        }
+        else
+        {
+            // Fallback to direct input
+            pickupPressed = Input.GetMouseButtonDown(0);
+            throwPressed = Input.GetMouseButtonDown(1);
+            rotateHeld = Input.GetKey(KeyCode.R);
+            scrollDelta = Input.mouseScrollDelta.y;
+        }
+        
+        // Pick up or drop
+        if (pickupPressed)
         {
             if (!isHoldingObject)
                 TryPickupObject();
@@ -81,20 +100,20 @@ public class ObjectInteraction : MonoBehaviour
         }
         
         // Throw object
-        if (Input.GetMouseButtonDown(1) && isHoldingObject) // Right click
+        if (throwPressed && isHoldingObject)
         {
             ThrowObject();
         }
         
         // Adjust hold distance with mouse wheel
-        if (isHoldingObject && Input.mouseScrollDelta.y != 0)
+        if (isHoldingObject && scrollDelta != 0)
         {
-            holdDistance = Mathf.Clamp(holdDistance + Input.mouseScrollDelta.y * 0.5f, 1f, 5f);
+            holdDistance = Mathf.Clamp(holdDistance + scrollDelta * 0.5f, 1f, 5f);
             holdPoint.localPosition = Vector3.forward * holdDistance;
         }
         
-        // Rotate object with R key
-        if (isHoldingObject && Input.GetKey(KeyCode.R))
+        // Rotate object
+        if (isHoldingObject && rotateHeld)
         {
             heldObject.transform.Rotate(playerCamera.transform.up, 100f * Time.deltaTime, Space.World);
         }
@@ -130,45 +149,33 @@ public class ObjectInteraction : MonoBehaviour
         heldRigidbody = rb;
         isHoldingObject = true;
         
-        // Store original physics properties
         originalDrag = rb.drag;
         originalAngularDrag = rb.angularDrag;
         originalLayer = obj.layer;
         
-        // Modify physics for holding
         rb.drag = dampingFactor;
         rb.angularDrag = dampingFactor;
         rb.useGravity = false;
-        
-        // Remove velocity constraints to allow full 3D movement
         rb.constraints = RigidbodyConstraints.None;
         
-        // Disable collision between object and player by changing layer temporarily
         obj.layer = LayerMask.NameToLayer("Ignore Raycast");
         
-        // Play pickup sound
         PlaySound(pickupSound);
     }
     
     void MoveHeldObject()
     {
-        // Calculate target position
         Vector3 targetPos = holdPoint.position;
-        
-        // Calculate direction and distance to target
         Vector3 direction = targetPos - heldRigidbody.position;
         float distance = direction.magnitude;
         
-        // Apply force proportional to distance
         if (distance > 0.01f)
         {
-            // Boost vertical component for better up/down movement
             Vector3 force = direction.normalized * moveForce * distance;
-            force.y *= verticalMultiplier; // Extra vertical force
+            force.y *= verticalMultiplier;
             
             heldRigidbody.AddForce(force, ForceMode.Force);
             
-            // Clamp velocity to prevent object from flying away
             if (heldRigidbody.velocity.magnitude > maxVelocity)
             {
                 heldRigidbody.velocity = heldRigidbody.velocity.normalized * maxVelocity;
@@ -176,11 +183,9 @@ public class ObjectInteraction : MonoBehaviour
         }
         else
         {
-            // When very close to target, reduce velocity to prevent jitter
             heldRigidbody.velocity *= 0.9f;
         }
         
-        // Smooth rotation towards camera forward
         Quaternion targetRotation = Quaternion.LookRotation(playerCamera.transform.forward);
         heldRigidbody.MoveRotation(Quaternion.Slerp(
             heldRigidbody.rotation, 
@@ -193,16 +198,12 @@ public class ObjectInteraction : MonoBehaviour
     {
         if (heldRigidbody != null)
         {
-            // Restore original physics properties
             heldRigidbody.drag = originalDrag;
             heldRigidbody.angularDrag = originalAngularDrag;
             heldRigidbody.useGravity = true;
-            
-            // Restore original layer
             heldObject.layer = originalLayer;
         }
         
-        // Play drop sound
         PlaySound(dropSound);
         
         heldObject = null;
@@ -214,20 +215,16 @@ public class ObjectInteraction : MonoBehaviour
     {
         if (heldRigidbody != null)
         {
-            // Restore physics properties
             heldRigidbody.drag = originalDrag;
             heldRigidbody.angularDrag = originalAngularDrag;
             heldRigidbody.useGravity = true;
             
-            // Apply throw force
             Vector3 throwDirection = playerCamera.transform.forward;
             heldRigidbody.AddForce(throwDirection * throwForce, ForceMode.VelocityChange);
             
-            // Restore original layer
             heldObject.layer = originalLayer;
         }
         
-        // Play throw sound
         PlaySound(throwSound);
         
         heldObject = null;
@@ -243,7 +240,6 @@ public class ObjectInteraction : MonoBehaviour
         }
     }
     
-    // Optional: Draw gizmos to show pickup range
     void OnDrawGizmosSelected()
     {
         if (playerCamera == null) return;

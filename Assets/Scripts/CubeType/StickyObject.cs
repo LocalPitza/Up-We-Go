@@ -58,7 +58,10 @@ public class StickyObject : MonoBehaviour
         {
             Unstick();
         }
-        
+    }
+    
+    void FixedUpdate()
+    {
         // Update position if stuck to a moving object
         if (isStuck && stuckToObject != null)
         {
@@ -104,10 +107,11 @@ public class StickyObject : MonoBehaviour
         localStickPosition = target.transform.InverseTransformPoint(transform.position);
         localStickRotation = Quaternion.Inverse(target.transform.rotation) * transform.rotation;
         
-        // Stop all physics
+        // Stop all physics BEFORE making kinematic
         rb.velocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
-        rb.drag = 50;
+        
+        // Now make it kinematic
         rb.isKinematic = true;
         
         // Play stick sound
@@ -119,14 +123,12 @@ public class StickyObject : MonoBehaviour
     void UpdateStuckPosition()
     {
         // Update position and rotation to follow the stuck object
-        transform.position = stuckToObject.transform.TransformPoint(localStickPosition);
-        transform.rotation = stuckToObject.transform.rotation * localStickRotation;
+        // Use MovePosition and MoveRotation for kinematic rigidbodies
+        Vector3 newPosition = stuckToObject.transform.TransformPoint(localStickPosition);
+        Quaternion newRotation = stuckToObject.transform.rotation * localStickRotation;
         
-        // If stuck object is moving, match its velocity to avoid lag
-        if (stuckToRigidbody != null)
-        {
-            rb.velocity = stuckToRigidbody.velocity;
-        }
+        rb.MovePosition(newPosition);
+        rb.MoveRotation(newRotation);
     }
     
     void Unstick()
@@ -135,12 +137,21 @@ public class StickyObject : MonoBehaviour
         
         isStuck = false;
         canStick = false;
-        stuckToObject = null;
-        stuckToRigidbody = null;
         
         // Re-enable physics
         rb.isKinematic = false;
         rb.useGravity = true;
+        rb.drag = 0.5f; // Reset to reasonable default
+        rb.angularDrag = 0.05f;
+        
+        // If we were stuck to a moving object, inherit its velocity
+        if (stuckToRigidbody != null)
+        {
+            rb.velocity = stuckToRigidbody.velocity;
+        }
+        
+        stuckToObject = null;
+        stuckToRigidbody = null;
         
         Debug.Log("Unstuck from object");
     }

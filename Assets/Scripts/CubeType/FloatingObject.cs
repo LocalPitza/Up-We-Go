@@ -109,4 +109,5 @@ public class FloatingObject : MonoBehaviour
             Gizmos.DrawWireSphere(transform.position, 0.3f);
         }
     }
+    
 }
